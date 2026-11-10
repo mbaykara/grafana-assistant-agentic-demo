@@ -1,0 +1,97 @@
+name: autoheal-merge
+
+# Merges fix PRs opened by Grafana Assistant, but only after a clean Copilot review.
+# Guardrails: author is the Assistant bot, branch is assistant/*, only internal/
+# changes, vet + tests pass. If Copilot leaves comments, the PR goes back to the
+# Assistant via an @grafana mention (max 2 rounds), then to a human.
+# AUTOHEAL_USER_TOKEN: fine-grained PAT of the repo owner (Pull requests: RW),
+# used only to request Copilot and to mention @grafana.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  automerge:
+    if: >-
+      github.event.pull_request.user.login == 'grafana-assistant[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'assistant/')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: autoheal-merge-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      MAX_ROUNDS: "2"
+      MARKER: "autoheal-round"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Guardrail - only internal/ may change
+        run: |
+          files=$(gh pr diff "$PR" --name-only)
+          echo "$files"
+          if echo "$files" | grep -qv '^internal/'; then
+            gh pr comment "$PR" --body "autoheal: this PR touches files outside internal/, leaving it for a human."
+            exit 1
+          fi
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet and test
+        run: go vet ./... && go test ./...
+      - name: Mark ready (Copilot auto-review skips drafts)
+        run: gh pr ready "$PR" || true
+      - name: Ask Copilot to review this commit
+        # Copilot only accepts review requests from a user with a Copilot seat.
+        env:
+          GH_TOKEN: ${{ secrets.AUTOHEAL_USER_TOKEN }}
+        run: gh pr edit "$PR" --add-reviewer @copilot
+      - name: Wait for Copilot review of this commit (max 5 min)
+        id: review
+        run: |
+          for i in $(seq 1 30); do
+            rid=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/reviews" \
+              --jq "[.[]|select((.user.login|test(\"copilot\";\"i\")) and .commit_id==\"${HEAD_SHA}\")]|last|.id // empty")
+            if [ -n "$rid" ]; then
+              # Count only comments from this review: older comments move to new commits.
+              c=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/reviews/${rid}/comments" --jq 'length')
+              echo "Copilot reviewed ${HEAD_SHA:0:7}: ${c} inline comment(s)"
+              echo "reviewed=true" >> "$GITHUB_OUTPUT"; echo "comments=${c}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "No Copilot review for ${HEAD_SHA:0:7} within 5 min"
+          echo "reviewed=false" >> "$GITHUB_OUTPUT"
+      - name: Merge when the review is clean
+        if: steps.review.outputs.reviewed == 'true' && steps.review.outputs.comments == '0'
+        run: |
+          gh pr merge "$PR" --squash --delete-branch
+          # A merge made with GITHUB_TOKEN does not trigger push workflows.
+          gh workflow run build.yaml -f ref=main
+      - name: Send Copilot comments back to the Assistant
+        if: steps.review.outputs.reviewed == 'true' && steps.review.outputs.comments != '0'
+        # Grafana Assistant only reacts to @grafana mentions from people, not bots.
+        env:
+          GH_TOKEN: ${{ secrets.AUTOHEAL_USER_TOKEN }}
+        run: |
+          rounds=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            --jq "[.[]|select(.body|contains(\"<!-- ${MARKER} -->\"))]|length")
+          if [ "$rounds" -ge "$MAX_ROUNDS" ]; then
+            gh pr comment "$PR" --body "autoheal: Copilot still has comments after ${rounds} rounds. Leaving this PR for a human."
+            exit 0
+          fi
+          gh pr comment "$PR" --body "@grafana please address the Copilot review comments on this pull request and push the fixes to this branch. Keep go test ./... green.
+          <!-- ${MARKER} -->"
+      - name: No review, hand to a human
+        if: steps.review.outputs.reviewed != 'true'
+        run: |
+          gh pr comment "$PR" --body "autoheal: no Copilot review arrived for ${HEAD_SHA:0:7}. Not merging without a review; leaving this PR for a human."

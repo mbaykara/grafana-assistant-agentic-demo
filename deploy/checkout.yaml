@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: ai-camp
+  labels: {app: checkout}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: checkout}
+  template:
+    metadata:
+      labels: {app: checkout}
+    spec:
+      imagePullSecrets:
+        - name: ghcr
+      containers:
+        - name: checkout
+          image: ghcr.io/mbaykara/ai-camp-checkout:v1.1
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://grafana-cloud-otel-receiver.monitoring.svc:4318
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: deployment.environment=demo,service.namespace=ai-camp,k8s.namespace.name=ai-camp,k8s.pod.name=$(POD_NAME)
+          ports:
+            - containerPort: 8081
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8081}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+  namespace: ai-camp
+spec:
+  selector: {app: checkout}
+  ports:
+    - port: 8081
+      targetPort: 8081

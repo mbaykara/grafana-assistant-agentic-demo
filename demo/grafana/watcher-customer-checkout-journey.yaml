@@ -1,0 +1,57 @@
+apiVersion: assistant.ext.grafana.app/v1alpha1
+kind: Watcher
+metadata:
+  name: customer-checkout-journey
+  namespace: stacks-<STACK_ID>
+spec:
+  autoStop:
+    archive: false
+    enabled: false
+  automaticRecalibration:
+    enabled: false
+  datasourceUids:
+  - grafanacloud-prom
+  - grafanacloud-logs
+  - grafanacloud-traces
+  description: ""
+  interval: 1h0m0s
+  investigation:
+    enabled: true
+    teamAccess: []
+  labels:
+    team: ai-camp
+  notifications:
+    alerting:
+      enabled: false
+      routingTree: ""
+      severity: warning-and-critical
+    slack:
+      enabled: false
+      severity: warning-and-critical
+      targetType: channel
+    teams:
+      enabled: false
+      severity: warning-and-critical
+    webhook:
+      enabled: false
+      severity: warning-and-critical
+  prompt: |-
+    Watch the shop services checkout and storefront (service_namespace="ai-camp",
+    k8s_cluster_name="my-cluster"). Healthy means checkout HTTP 5xx ratio under 1%
+    (metric http_server_request_duration_seconds_count, label
+    http_response_status_code) and p95 latency under 200 ms. The alert rule
+    "Checkout error rate high" (folder AI Camp) fires above 5%.
+
+    When it is unhealthy, start an Investigation. Use error logs
+    ({service_name="checkout"} | detected_level="error", they carry the panic and
+    stack trace) and error spans ({resource.service.name="checkout" && status=error}).
+
+    The source code is https://github.com/mbaykara/grafana-assistant-agentic-demo (Go).
+    Business logic is in internal/pricing. Read AGENTS.md first. If the root cause
+    is a code bug, fix it on a new branch named assistant/fix-<topic>-<YYYYMMDDHHMM>, add a test that fails before the fix,
+    run go test ./..., push the branch and open a pull request against main.
+    Opening the pull request is required, not optional. Add the label autoheal
+    (it exists); if labelling fails, open the pull request without it.
+  sensitivity: balanced
+  skipReviewOnCleanRuns: true
+  title: Customer checkout journey

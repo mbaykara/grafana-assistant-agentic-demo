@@ -1,0 +1,66 @@
+From 850ab52c62dfa14dc68e47994da009007b0cc0cd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 00:16:57 +0000
+Subject: [PATCH] fix(pricing): initialize receipt map before writing discount
+ line
+
+Total allocated the per-SKU receipt map lazily inside the item loop, so a
+cart with no items left it nil. Writing the discount line then panicked
+with "assignment to entry in nil map", crashing POST /checkout for every
+"apply code first" cart (discount code, empty items).
+
+Allocate the map up front. Behaviour is unchanged for all other inputs:
+an empty cart with a valid code now totals 0 instead of panicking.
+
+Introduced in 36f5383 ("feat(pricing): add discount codes").
+---
+ internal/pricing/pricing.go      |  5 +----
+ internal/pricing/pricing_test.go | 15 +++++++++++++++
+ 2 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/internal/pricing/pricing.go b/internal/pricing/pricing.go
+index 76f943f..8acdbd6 100644
+--- a/internal/pricing/pricing.go
++++ b/internal/pricing/pricing.go
+@@ -28,11 +28,8 @@ var discounts = map[string]int64{
+ // Total returns the order total in cents after any discount.
+ func Total(c Cart) (int64, error) {
+ 	// Receipt lines per SKU, plus one line for the discount.
+-	var lines map[string]int64
++	lines := make(map[string]int64, len(c.Items)+1)
+ 	for _, it := range c.Items {
+-		if lines == nil {
+-			lines = make(map[string]int64, len(c.Items)+1)
+-		}
+ 		lines[it.SKU] += int64(it.Qty) * it.UnitCents
+ 	}
+ 
+diff --git a/internal/pricing/pricing_test.go b/internal/pricing/pricing_test.go
+index c6634ad..42a3c11 100644
+--- a/internal/pricing/pricing_test.go
++++ b/internal/pricing/pricing_test.go
+@@ -32,6 +32,21 @@ func TestTotal_Discount10(t *testing.T) {
+ 	}
+ }
+ 
++// Regression test: an "apply code first" cart has a discount code but no items
++// yet. Before the fix the receipt map was only allocated inside the item loop,
++// so writing the discount line panicked with "assignment to entry in nil map".
++func TestTotal_DiscountWithNoItems(t *testing.T) {
++	for _, items := range [][]Item{nil, {}} {
++		got, err := Total(Cart{Items: items, DiscountCode: "CAMP10"})
++		if err != nil {
++			t.Fatalf("items=%#v: unexpected error: %v", items, err)
++		}
++		if got != 0 {
++			t.Fatalf("items=%#v: got %d, want 0", items, got)
++		}
++	}
++}
++
+ func TestTotal_UnknownCode(t *testing.T) {
+ 	_, err := Total(Cart{Items: []Item{{SKU: "a", Qty: 1, UnitCents: 1000}}, DiscountCode: "NOPE"})
+ 	if err != ErrUnknownCode {
+-- 
+2.52.0
+

@@ -1,0 +1,17 @@
+# Commit checks. Install once per clone: pre-commit install
+# - gitleaks: secrets (tokens, keys, passwords).
+# - customer-data: customer names, emails, internal links, customer documents.
+#   Customer-specific terms live in .git/info/sensitive-terms (never committed).
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: customer-data
+        name: customer data and internal links
+        entry: .githooks/check-sensitive.sh
+        language: script
+        pass_filenames: false
+        always_run: true

@@ -1,0 +1,318 @@
+{
+ "apiVersion": "dashboard.grafana.app/v1beta1",
+ "kind": "Dashboard",
+ "metadata": {
+  "name": "ai-camp-shop",
+  "annotations": {
+   "grafana.app/folder": "ai-camp"
+  }
+ },
+ "spec": {
+  "title": "AI Camp shop",
+  "tags": [
+   "ai-camp"
+  ],
+  "time": {
+   "from": "now-30m",
+   "to": "now"
+  },
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "panels": [
+   {
+    "id": 1,
+    "type": "stat",
+    "title": "Orders / s",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "gridPos": {
+     "x": 0,
+     "y": 0,
+     "w": 6,
+     "h": 4
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "reqps"
+     },
+     "overrides": []
+    },
+    "options": {
+     "colorMode": "background",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "refId": "A",
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"storefront\"}[$__rate_interval]))",
+      "instant": false
+     }
+    ]
+   },
+   {
+    "id": 2,
+    "type": "stat",
+    "title": "Checkout error rate",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "gridPos": {
+     "x": 6,
+     "y": 0,
+     "w": 6,
+     "h": 4
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "percentunit",
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "red",
+         "value": 0.05
+        }
+       ]
+      }
+     },
+     "overrides": []
+    },
+    "options": {
+     "colorMode": "background",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "refId": "A",
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"checkout\",http_response_status_code=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"checkout\"}[$__rate_interval]))",
+      "instant": false
+     }
+    ]
+   },
+   {
+    "id": 3,
+    "type": "stat",
+    "title": "Checkout p95",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "gridPos": {
+     "x": 12,
+     "y": 0,
+     "w": 6,
+     "h": 4
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "s"
+     },
+     "overrides": []
+    },
+    "options": {
+     "colorMode": "background",
+     "graphMode": "area",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ]
+     }
+    },
+    "targets": [
+     {
+      "refId": "A",
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "histogram_quantile(0.95, sum by (le)(rate(http_server_request_duration_seconds_bucket{service_name=\"checkout\"}[$__rate_interval])))",
+      "instant": false
+     }
+    ]
+   },
+   {
+    "id": 4,
+    "type": "stat",
+    "title": "Running version",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "gridPos": {
+     "x": 18,
+     "y": 0,
+     "w": 6,
+     "h": 4
+    },
+    "options": {
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "/^service_version$/"
+     },
+     "textMode": "value"
+    },
+    "targets": [
+     {
+      "refId": "A",
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "max by (service_version)(target_info{service_name=\"checkout\"})",
+      "instant": true,
+      "format": "table"
+     }
+    ]
+   },
+   {
+    "id": 5,
+    "type": "timeseries",
+    "title": "Requests by status",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "gridPos": {
+     "x": 0,
+     "y": 4,
+     "w": 12,
+     "h": 8
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "reqps"
+     },
+     "overrides": []
+    },
+    "targets": [
+     {
+      "refId": "A",
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "sum by (service_name, http_response_status_code)(rate(http_server_request_duration_seconds_count{service_name=~\"checkout|storefront\"}[$__rate_interval]))",
+      "legendFormat": "{{service_name}} {{http_response_status_code}}"
+     }
+    ]
+   },
+   {
+    "id": 6,
+    "type": "timeseries",
+    "title": "Latency p95",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "grafanacloud-prom"
+    },
+    "gridPos": {
+     "x": 12,
+     "y": 4,
+     "w": 12,
+     "h": 8
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "s"
+     },
+     "overrides": []
+    },
+    "targets": [
+     {
+      "refId": "A",
+      "datasource": {
+       "type": "prometheus",
+       "uid": "grafanacloud-prom"
+      },
+      "expr": "histogram_quantile(0.95, sum by (le, service_name)(rate(http_server_request_duration_seconds_bucket{service_name=~\"checkout|storefront\"}[$__rate_interval])))",
+      "legendFormat": "{{service_name}}"
+     }
+    ]
+   },
+   {
+    "id": 7,
+    "type": "logs",
+    "title": "Errors",
+    "datasource": {
+     "type": "loki",
+     "uid": "grafanacloud-logs"
+    },
+    "gridPos": {
+     "x": 0,
+     "y": 12,
+     "w": 12,
+     "h": 10
+    },
+    "options": {
+     "showTime": true,
+     "wrapLogMessage": true,
+     "enableLogDetails": true
+    },
+    "targets": [
+     {
+      "refId": "A",
+      "datasource": {
+       "type": "loki",
+       "uid": "grafanacloud-logs"
+      },
+      "expr": "{service_name=~\"checkout|storefront\"} | detected_level=\"error\""
+     }
+    ]
+   },
+   {
+    "id": 8,
+    "type": "table",
+    "title": "Failed checkout traces",
+    "datasource": {
+     "type": "tempo",
+     "uid": "grafanacloud-traces"
+    },
+    "gridPos": {
+     "x": 12,
+     "y": 12,
+     "w": 12,
+     "h": 10
+    },
+    "targets": [
+     {
+      "refId": "A",
+      "datasource": {
+       "type": "tempo",
+       "uid": "grafanacloud-traces"
+      },
+      "queryType": "traceql",
+      "query": "{resource.service.name=\"checkout\" && status=error}",
+      "limit": 20,
+      "tableType": "traces"
+     }
+    ]
+   }
+  ]
+ }
+}

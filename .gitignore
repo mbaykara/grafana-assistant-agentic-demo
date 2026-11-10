@@ -1,0 +1,28 @@
+# Allowlist: ignore everything, then unignore project files.
+*
+!*/
+!.gitignore
+!.github/**
+!go.mod
+!go.sum
+!*.go
+!Dockerfile
+!*.md
+!deploy/*.yaml
+!flux/*.yaml
+!demo/**
+!.pre-commit-config.yaml
+!.githooks/**
+
+
+# Never commit these, even if matched above.
+.env*
+*.pem
+*.key
+*kubeconfig*
+*secret*.yaml
+
+# Presenter-only notes: kept locally, never committed.
+demo/docs/speaker-guide.md
+demo/docs/run-of-show.md
+demo/continue-here.md

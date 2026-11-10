@@ -1,0 +1,38 @@
+{
+  "uid": "ai-camp-checkout-errors",
+  "title": "Checkout error rate high",
+  "folderUID": "ai-camp",
+  "ruleGroup": "ai-camp-shop",
+  "condition": "C",
+  "for": "1m",
+  "noDataState": "OK",
+  "execErrState": "Error",
+  "labels": {"service": "checkout", "team": "ai-camp", "severity": "critical"},
+  "annotations": {
+    "summary": "Checkout returns HTTP 5xx for {{ printf \"%.0f\" (mul $values.B.Value 100) }}% of requests",
+    "description": "service_name=checkout in namespace ai-camp on cluster my-cluster. Source code: https://github.com/mbaykara/grafana-assistant-agentic-demo (Go, business logic in internal/pricing). Errors are logged with a stack trace.",
+    "runbook_url": "https://github.com/mbaykara/grafana-assistant-agentic-demo/blob/main/AGENTS.md"
+  },
+  "data": [
+    {
+      "refId": "A",
+      "datasourceUid": "grafanacloud-prom",
+      "relativeTimeRange": {"from": 300, "to": 0},
+      "model": {
+        "refId": "A",
+        "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"checkout\",http_response_status_code=~\"5..\"}[2m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"checkout\"}[2m]))",
+        "instant": true
+      }
+    },
+    {
+      "refId": "B",
+      "datasourceUid": "__expr__",
+      "model": {"refId": "B", "type": "reduce", "expression": "A", "reducer": "last"}
+    },
+    {
+      "refId": "C",
+      "datasourceUid": "__expr__",
+      "model": {"refId": "C", "type": "threshold", "expression": "B", "conditions": [{"evaluator": {"type": "gt", "params": [0.05]}}]}
+    }
+  ]
+}

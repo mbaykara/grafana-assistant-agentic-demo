@@ -1,0 +1,125 @@
+name: build
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore: ["demo/**"]
+  push:
+    branches: [main]
+    tags: ["v*"]
+    # Presenter material does not build or release the app.
+    paths-ignore: ["demo/**"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build (for example v1)
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # Resolve the exact commit once, so every job builds and releases the same one.
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.m.outputs.sha }}
+      tag: ${{ steps.m.outputs.tag }}
+      version: ${{ steps.m.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - id: m
+        run: |
+          sha=$(git rev-parse HEAD)
+          tag="sha-$(echo "$sha" | cut -c1-7)"
+          ref="${{ inputs.ref || github.ref_name }}"
+          # Release tags (v*) keep their name; everything else reports the commit.
+          case "$ref" in v*) version="$ref" ;; *) version="$tag" ;; esac
+          { echo "sha=$sha"; echo "tag=$tag"; echo "version=$version"; } >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./... && go test ./...
+
+  image:
+    needs: [meta, test]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      # GHCR sometimes denies one push with write_package; don't cancel the others.
+      fail-fast: false
+      matrix:
+        service: [checkout, storefront, loadgen]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.sha }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        id: push
+        continue-on-error: true
+        with:
+          context: .
+          push: true
+          provenance: false
+          build-args: |
+            CMD=${{ matrix.service }}
+            VERSION=${{ needs.meta.outputs.version }}
+          tags: |
+            ghcr.io/mbaykara/ai-camp-${{ matrix.service }}:${{ needs.meta.outputs.version }}
+            ghcr.io/mbaykara/ai-camp-${{ matrix.service }}:${{ needs.meta.outputs.tag }}
+      - name: Retry push once
+        if: steps.push.outcome == 'failure'
+        run: sleep 20
+      - uses: docker/build-push-action@v6
+        id: push_retry
+        if: steps.push.outcome == 'failure'
+        with:
+          context: .
+          push: true
+          provenance: false
+          build-args: |
+            CMD=${{ matrix.service }}
+            VERSION=${{ needs.meta.outputs.version }}
+          tags: |
+            ghcr.io/mbaykara/ai-camp-${{ matrix.service }}:${{ needs.meta.outputs.version }}
+            ghcr.io/mbaykara/ai-camp-${{ matrix.service }}:${{ needs.meta.outputs.tag }}
+
+  release:
+    # GitOps: point deploy/ at the images just built. Flux in the cluster applies it.
+    needs: [meta, image]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.ref == 'main')
+    runs-on: ubuntu-latest
+    concurrency: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Bump image tags
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          sed -i -E "s/^(    newTag: ).*/\1${TAG}/" deploy/kustomization.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add deploy/kustomization.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(deploy): release ${TAG}"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push origin HEAD:main && break; sleep 5; done

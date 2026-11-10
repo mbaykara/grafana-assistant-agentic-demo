@@ -1,0 +1,35 @@
+# Flux sync for the AI Camp shop. Apply once:
+#   kubectl --context my-cluster apply -f flux/ai-camp.yaml
+# Secret ai-camp-repo (SSH deploy key, read-only) is created with
+#   flux create secret git ai-camp-repo -n flux-system --url=ssh://git@github.com/mbaykara/grafana-assistant-agentic-demo --ssh-key-algorithm=ed25519
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: ai-camp
+  namespace: flux-system
+spec:
+  interval: 15s
+  url: ssh://git@github.com/mbaykara/grafana-assistant-agentic-demo
+  ref:
+    branch: main
+  secretRef:
+    name: ai-camp-repo
+  ignore: |
+    /*
+    !/deploy/
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: ai-camp
+  namespace: flux-system
+spec:
+  interval: 15s
+  retryInterval: 15s
+  path: ./deploy
+  prune: true
+  wait: true
+  timeout: 3m
+  sourceRef:
+    kind: GitRepository
+    name: ai-camp

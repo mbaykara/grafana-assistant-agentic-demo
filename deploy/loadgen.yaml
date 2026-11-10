@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: ai-camp
+  labels: {app: loadgen}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: loadgen}
+  template:
+    metadata:
+      labels: {app: loadgen}
+    spec:
+      imagePullSecrets:
+        - name: ghcr
+      containers:
+        - name: loadgen
+          image: ghcr.io/mbaykara/ai-camp-loadgen:v1.1
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://grafana-cloud-otel-receiver.monitoring.svc:4318
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "15000"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: deployment.environment=demo,service.namespace=ai-camp,k8s.namespace.name=ai-camp,k8s.pod.name=$(POD_NAME)
+            - name: STOREFRONT_URL
+              value: http://storefront.ai-camp.svc:8080
+            - name: RPS
+              value: "5"
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
